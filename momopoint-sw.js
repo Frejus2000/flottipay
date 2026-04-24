@@ -1,14 +1,14 @@
 /* ============================================================
-   FlottiPay — Service Worker v1.0
+   MomoPoint — Service Worker v1.0
    Permet l'utilisation hors ligne de l'application
    ============================================================ */
 
-const CACHE_NAME = 'flottipay-v1';
-const OFFLINE_PAGE = '/flottipay-app.html';
+const CACHE_NAME = 'MomoPoint-v1';
+const OFFLINE_PAGE = '/momopoint-app.html';
 
 // Fichiers à mettre en cache lors de l'installation
 const PRECACHE_URLS = [
-  '/flottipay-app.html',
+  '/MomoPoint-app.html',
   'https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500;700&display=swap',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
 ];
