@@ -1,5 +1,5 @@
 /* ============================================================
-   FlottiPay Admin — Logique JavaScript
+   MomoPoint Admin — Logique JavaScript
    ============================================================ */
 
 /* ══════════════════════════════════════════════════════════
@@ -667,7 +667,7 @@ function doWA() {
   const phone = document.getElementById('kgPhone').value.trim().replace(/\s+/g, '');
   const p     = currentPlan;
   const msg   = encodeURIComponent(
-    `Bonjour ${name} 👋\n\nVotre licence FlottiPay est prête !\n\n🔑 *Clé de licence :*\n${genKey}\n\n📦 Plan : ${p?.name || '—'} (${p?.days || 0} jours)\n♾️ Gérants illimités inclus\n\n🌐 Créez votre compte ici :\n👉 https://TON-SITE.netlify.app/flottipay-app.html\n\n⚠️ Cette clé est personnelle et ne peut être utilisée qu'une seule fois.\n\n_— FlottiPay, gestion de cabines mobile money_`
+    `Bonjour ${name} 👋\n\nVotre licence MomoPoint est prête !\n\n🔑 *Clé de licence :*\n${genKey}\n\n📦 Plan : ${p?.name || '—'} (${p?.days || 0} jours)\n♾️ Gérants illimités inclus\n\n🌐 Créez votre compte ici :\n👉 https://TON-SITE.netlify.app/momopoint-app.html\n\n⚠️ Cette clé est personnelle et ne peut être utilisée qu'une seule fois.\n\n_— MomoPoint, gestion de cabines mobile money_`
   );
   window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
 }
