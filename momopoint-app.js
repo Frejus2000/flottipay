@@ -53,11 +53,19 @@ const NET_COLORS = ['#00c4ff','#ff9500','#ffc94d','#00d68f','#ff4466','#b09fff',
  * La commission est un montant FIXE par tranche, pas un pourcentage.
  */
 const DEFAULT_SLABS_MTN = [
-  { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 60  },
-  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 100 },
-  { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 150 },
-  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 200 },
-  { min_amount: 50001,  max_amount: null,  fee: 750, commission: 300 },
+  { min_amount: 0,      max_amount: 500,  fee: 50, commission: 19.80  },
+  { min_amount: 501,      max_amount: 5000,  fee: 125, commission: 40.5  },
+  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 76.5 },
+  { min_amount: 10001,  max_amount: 20000, fee: 375, commission: 135 },
+  { min_amount: 20001,  max_amount: 50000, fee: 700, commission: 270 },
+  { min_amount: 50001,  max_amount: 100000,  fee: 1000, commission: 7 },
+  { min_amount: 100001,  max_amount: 200000,  fee: 2000, commission: 765 },
+  { min_amount: 200001,  max_amount: 300000,  fee: 3000, commission: 1170 },
+  { min_amount: 300001,  max_amount: 500000,  fee: 3500, commission: 1350 },
+  { min_amount: 500001,  max_amount: 750000,  fee: 5000, commission: 1350 },
+  { min_amount: 750001,  max_amount: 1000000,  fee: 6000, commission: 1350 },
+  { min_amount: 1000001,  max_amount: 1500000,  fee: 8000, commission: 1350 },
+  { min_amount: 1500001,  max_amount: 2000000,  fee: 9900, commission: 310 },
 ];
 
 /**
@@ -66,11 +74,19 @@ const DEFAULT_SLABS_MTN = [
  * La commission est un montant FIXE par tranche, pas un pourcentage.
  */
 const DEFAULT_SLABS_MOOV = [
-  { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 60  },
-  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 130 },
-  { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 140 },
-  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 201 },
-  { min_amount: 50001,  max_amount: null,  fee: 750, commission: 310 },
+  { min_amount: 0,      max_amount: 500,  fee: 50, commission: 19.80  },
+  { min_amount: 501,      max_amount: 5000,  fee: 125, commission: 40.5  },
+  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 76.5 },
+  { min_amount: 10001,  max_amount: 20000, fee: 375, commission: 135 },
+  { min_amount: 20001,  max_amount: 50000, fee: 700, commission: 270 },
+  { min_amount: 50001,  max_amount: 100000,  fee: 1000, commission: 7 },
+  { min_amount: 100001,  max_amount: 200000,  fee: 2000, commission: 765 },
+  { min_amount: 200001,  max_amount: 300000,  fee: 3000, commission: 1170 },
+  { min_amount: 300001,  max_amount: 500000,  fee: 3500, commission: 1350 },
+  { min_amount: 500001,  max_amount: 750000,  fee: 5000, commission: 1350 },
+  { min_amount: 750001,  max_amount: 1000000,  fee: 6000, commission: 1350 },
+  { min_amount: 1000001,  max_amount: 1500000,  fee: 8000, commission: 1350 },
+  { min_amount: 1500001,  max_amount: 2000000,  fee: 9900, commission: 310 },
 ];
 
 /**
@@ -79,11 +95,17 @@ const DEFAULT_SLABS_MOOV = [
  * La commission est un montant FIXE par tranche, pas un pourcentage.
  */
 const DEFAULT_SLABS_CELTIIS = [
-  { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 50  },
-  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 130 },
-  { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 140 },
-  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 211 },
-  { min_amount: 50001,  max_amount: null,  fee: 750, commission: 330 },
+  { min_amount: 0,      max_amount: 500,  fee: 25, commission: 19.80  },
+  { min_amount: 501,      max_amount: 5000,  fee: 75, commission: 40.5  },
+  { min_amount: 5001,   max_amount: 10000, fee: 150, commission: 76.5 },
+  { min_amount: 10001,  max_amount: 20000, fee: 250, commission: 135 },
+  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 270 },
+  { min_amount: 50001,  max_amount: 75000,  fee: 750, commission: 382.5 },
+  { min_amount: 75001,  max_amount: 100000,  fee: 1000, commission: 7 },
+  { min_amount: 100001,  max_amount: 200000,  fee: 2000, commission: 765 },
+  { min_amount: 200001,  max_amount: 300000,  fee: 3000, commission: 1170 },
+  { min_amount: 300001,  max_amount: 500000,  fee: 4000, commission: 1350 },
+  { min_amount: 500001,  max_amount: 2000000,  fee: 5000, commission: 310 },
 ];
 
 /**
@@ -98,9 +120,9 @@ const DEFAULT_SLABS_BY_NETWORK = {
 
 /** Réseaux créés par défaut à l'inscription d'un propriétaire */
 const DEFAULT_NETWORKS = [
-  { name: 'MTN',     color: '#ffc94d', rate_dep: 2.5, rate_ret: 0, rate_for: 2, rate_cre: 1.5 },
-  { name: 'Moov',    color: '#3d8bff', rate_dep: 2.5, rate_ret: 0, rate_for: 2, rate_cre: 1.5 },
-  { name: 'Celtiis', color: '#00e896', rate_dep: 2.5, rate_ret: 0, rate_for: 2, rate_cre: 1.5 },
+  { name: 'MTN',     color: '#ffc94d', rate_dep: 2.5, rate_ret: 0, rate_for: 4, rate_cre: 4 },
+  { name: 'Moov',    color: '#3d8bff', rate_dep: 2.5, rate_ret: 0, rate_for: 4, rate_cre: 4 },
+  { name: 'Celtiis', color: '#00e896', rate_dep: 0.302, rate_ret: 0, rate_for: 5, rate_cre: 5 },
 ];
 
 /** Initialisation du client Supabase */
