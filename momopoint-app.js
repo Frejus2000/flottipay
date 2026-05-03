@@ -47,6 +47,26 @@ const OI = { dep: '⬇️',               ret: '⬆️',              for: '📶
 /** Palette de couleurs disponibles pour les réseaux */
 const NET_COLORS = ['#00c4ff','#ff9500','#ffc94d','#00d68f','#ff4466','#b09fff','#3d8bff','#ff6eb4'];
 
+/**
+ * Tranches de retrait par défaut pour les 3 réseaux de base.
+ * Format : { min_amount, max_amount, fee (frais), commission (commission fixe) }
+ * La commission est un montant FIXE par tranche, pas un pourcentage.
+ */
+const DEFAULT_SLABS = [
+  { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 60  },
+  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 100 },
+  { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 150 },
+  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 200 },
+  { min_amount: 50001,  max_amount: null,  fee: 750, commission: 300 },
+];
+
+/** Réseaux créés par défaut à l'inscription d'un propriétaire */
+const DEFAULT_NETWORKS = [
+  { name: 'MTN',     color: '#ffc94d', rate_dep: 2.5, rate_ret: 0, rate_for: 2, rate_cre: 1.5 },
+  { name: 'Moov',    color: '#3d8bff', rate_dep: 2.5, rate_ret: 0, rate_for: 2, rate_cre: 1.5 },
+  { name: 'Celtiis', color: '#00e896', rate_dep: 2.5, rate_ret: 0, rate_for: 2, rate_cre: 1.5 },
+];
+
 /** Initialisation du client Supabase */
 const { createClient } = supabase;
 const sb = createClient(SB_URL, SB_KEY);
@@ -91,7 +111,7 @@ let A = {
   mgrNetCaps: {},         // { networkId: capital } — capital du gérant courant par réseau
 
   // Tranches de retrait
-  slabs:      {},         // { networkId: [ { min, max, fee } ] }
+  slabs:      {},         // { networkId: [ { min, max, fee, commission } ] }
   _slabNetId: null,       // Réseau en cours d'édition dans la modal tranches
   _slabRows:  [],         // Lignes temporaires de la modal tranches (avant sauvegarde)
 
@@ -155,10 +175,13 @@ function openM(id) {
 /** Ferme une modal bottom-sheet */
 function closeM(id) { document.getElementById(id).classList.remove('open'); }
 
-/** Demande confirmation avant déconnexion */
+/* ─────────────────────────────────────────────
+   MODAL DE CONFIRMATION DE DÉCONNEXION (stylée)
+   ───────────────────────────────────────────── */
+
+/** Ouvre la modal de confirmation de déconnexion */
 function confirmLogout() {
-  if (!confirm('Voulez-vous vraiment vous déconnecter ?')) return;
-  doLogout();
+  openM('logoutConfirmM');
 }
 
 /** Ouvre WhatsApp avec un message pré-rempli pour contacter l'admin */
@@ -180,23 +203,23 @@ document.querySelectorAll('.mover').forEach(m => {
 /* ─────────────────────────────────────────────
    4. LOGIQUE DES TRANCHES DE RETRAIT
    ─────────────────────────────────────────────
-   Pour les RETRAITS, la commission est calculée avec
-   les frais fixes d'une tranche (pas un % du montant) :
-     commission = taux_réseau% × frais_tranche(montant)
+   Pour les RETRAITS, la commission est un montant FIXE
+   défini dans la tranche (champ "commission"), pas un pourcentage.
+   Ex : retrait entre 0 et 5000 F → commission fixe de 60 F
 
    Pour DÉPÔT / FORFAIT / CRÉDIT :
      commission = taux_réseau% × montant
    ───────────────────────────────────────────── */
 
 /**
- * Retourne les frais fixes de la tranche correspondant au montant.
+ * Retourne la tranche correspondant au montant pour un réseau donné.
  * Retourne null si aucune tranche ne couvre ce montant.
  *
  * @param {string} networkId
  * @param {number} amount
- * @returns {number|null}
+ * @returns {{ fee: number, commission: number }|null}
  */
-function getWithdrawalFee(networkId, amount) {
+function getWithdrawalSlab(networkId, amount) {
   const slabs = (A.slabs[networkId] || [])
     .slice()
     .sort((a, b) => a.min_amount - b.min_amount);
@@ -204,7 +227,7 @@ function getWithdrawalFee(networkId, amount) {
   for (const s of slabs) {
     const withinRange = amount >= s.min_amount
       && (s.max_amount === null || s.max_amount === undefined || amount <= s.max_amount);
-    if (withinRange) return Number(s.fee || 0);
+    if (withinRange) return { fee: Number(s.fee || 0), commission: Number(s.commission || 0) };
   }
 
   return null; // Aucune tranche trouvée pour ce montant
@@ -212,18 +235,20 @@ function getWithdrawalFee(networkId, amount) {
 
 /**
  * Calcule la commission selon le type d'opération.
+ * - Retrait : commission FIXE depuis la tranche (champ commission)
+ * - Autres  : taux% × montant
  *
  * @param {'dep'|'ret'|'for'|'cre'} op  - Type d'opération
- * @param {number} rate                  - Taux du réseau en %
+ * @param {number} rate                  - Taux du réseau en % (utilisé uniquement pour dépôt/forfait/crédit)
  * @param {number} amount                - Montant de la transaction
  * @param {string} networkId             - ID du réseau
  * @returns {{ comm: number, noSlab: boolean, fee?: number }}
  */
 function computeComm(op, rate, amount, networkId) {
   if (op === 'ret') {
-    const fee = getWithdrawalFee(networkId, amount);
-    if (fee === null) return { comm: 0, noSlab: true };
-    return { comm: Math.round(fee * rate / 100), noSlab: false, fee };
+    const slab = getWithdrawalSlab(networkId, amount);
+    if (slab === null) return { comm: 0, noSlab: true };
+    return { comm: slab.commission, noSlab: false, fee: slab.fee };
   }
   // Dépôt, forfait, crédit : taux% × montant
   return { comm: Math.round(amount * rate / 100), noSlab: false };
@@ -270,25 +295,27 @@ function renderSlabModal() {
     <div style="padding:9px 12px;background:rgba(255,201,77,.05);border:1px solid rgba(255,201,77,.18);border-radius:10px;">
       <div style="font-size:11px;color:var(--yellow);font-weight:700;margin-bottom:3px;">📐 Logique de calcul retrait</div>
       <div style="font-size:10px;color:var(--muted3);line-height:1.6;">
-        Commission = <strong style="color:var(--text);">taux% × frais de la tranche</strong><br>
-        Les frais sont fixes selon le montant retiré, pas un % du montant total.
+        La <strong style="color:var(--text);">commission est un montant fixe</strong> défini par tranche.<br>
+        Ex : retrait entre 0 et 5 000 F → commission fixe de <strong style="color:var(--accent);">60 F</strong>
       </div>
     </div>
 
     <div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 90px 34px;gap:6px;padding:5px 0 8px;border-bottom:1px solid var(--border2);">
+      <div style="display:grid;grid-template-columns:1fr 1fr 80px 80px 34px;gap:6px;padding:5px 0 8px;border-bottom:1px solid var(--border2);">
         <div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;">Min (FCFA)</div>
         <div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;">Max (FCFA)</div>
         <div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;">Frais (F)</div>
+        <div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;">Comm. (F)</div>
         <div></div>
       </div>
       ${rows.length === 0
         ? '<div style="text-align:center;padding:16px;font-size:11px;color:var(--muted2);">Aucune tranche. Ajoutez-en une ↓</div>'
         : rows.map((s, i) => `
-            <div class="slab-row">
-              <input class="slab-inp" type="number" min="0" placeholder="0"   value="${s.min_amount ?? ''}" id="slab_min_${i}">
-              <input class="slab-inp" type="number" min="0" placeholder="∞"   value="${s.max_amount ?? ''}" id="slab_max_${i}">
-              <input class="slab-inp" type="number" min="0" placeholder="125" value="${s.fee ?? ''}"        id="slab_fee_${i}">
+            <div style="display:grid;grid-template-columns:1fr 1fr 80px 80px 34px;gap:6px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
+              <input class="slab-inp" type="number" min="0" placeholder="0"   value="${s.min_amount ?? ''}"  id="slab_min_${i}">
+              <input class="slab-inp" type="number" min="0" placeholder="∞"   value="${s.max_amount ?? ''}"  id="slab_max_${i}">
+              <input class="slab-inp" type="number" min="0" placeholder="125" value="${s.fee ?? ''}"         id="slab_fee_${i}">
+              <input class="slab-inp" type="number" min="0" placeholder="60"  value="${s.commission ?? ''}"  id="slab_comm_${i}" style="border-color:rgba(0,232,150,.3);color:var(--accent);">
               <button class="slab-del" onclick="removeSlabRow(${i})">🗑️</button>
             </div>`).join('')}
     </div>
@@ -300,6 +327,10 @@ function renderSlabModal() {
       + Ajouter une tranche
     </button>
 
+    <div style="padding:8px 10px;background:rgba(61,139,255,.05);border:1px solid rgba(61,139,255,.15);border-radius:9px;font-size:10px;color:var(--muted3);">
+      💡 <strong style="color:var(--text);">Frais</strong> = montant prélevé au client · <strong style="color:var(--accent);">Commission</strong> = votre gain fixe pour ce retrait
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
       <div style="padding:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;text-align:center;font-size:12px;color:var(--muted2);font-weight:700;cursor:pointer;" onclick="closeM('slabM')">Annuler</div>
       <button class="btn btng" onclick="saveSlabs()">💾 Enregistrer les tranches</button>
@@ -307,7 +338,7 @@ function renderSlabModal() {
 }
 
 function addSlabRow() {
-  A._slabRows.push({ min_amount: '', max_amount: '', fee: '' });
+  A._slabRows.push({ min_amount: '', max_amount: '', fee: '', commission: '' });
   renderSlabModal();
 }
 
@@ -324,16 +355,18 @@ async function saveSlabs() {
   // Lecture des valeurs depuis le DOM
   const newRows = [];
   A._slabRows.forEach((_, i) => {
-    const min   = parseFloat(document.getElementById(`slab_min_${i}`)?.value);
-    const maxEl = document.getElementById(`slab_max_${i}`)?.value?.trim();
-    const fee   = parseFloat(document.getElementById(`slab_fee_${i}`)?.value);
-    if (isNaN(min) || isNaN(fee)) return; // Ignorer les lignes incomplètes
+    const min    = parseFloat(document.getElementById(`slab_min_${i}`)?.value);
+    const maxEl  = document.getElementById(`slab_max_${i}`)?.value?.trim();
+    const fee    = parseFloat(document.getElementById(`slab_fee_${i}`)?.value);
+    const comm   = parseFloat(document.getElementById(`slab_comm_${i}`)?.value);
+    if (isNaN(min) || isNaN(fee) || isNaN(comm)) return; // Ignorer les lignes incomplètes
     newRows.push({
-      network_id: netId,
-      owner_id:   A.profile.id,
-      min_amount: min,
-      max_amount: (maxEl === '' || maxEl === undefined) ? null : parseFloat(maxEl),
+      network_id:  netId,
+      owner_id:    A.profile.id,
+      min_amount:  min,
+      max_amount:  (maxEl === '' || maxEl === undefined) ? null : parseFloat(maxEl),
       fee,
+      commission:  comm,
     });
   });
 
@@ -357,6 +390,22 @@ async function saveSlabs() {
   A.slabs[netId] = newRows; // Mise à jour du cache local
   toast(`✅ Tranches enregistrées ! (${newRows.length} tranche${newRows.length > 1 ? 's' : ''})`);
   closeM('slabM');
+}
+
+/**
+ * Initialise les tranches de retrait par défaut pour un réseau nouvellement créé.
+ * Appelé lors de la création des réseaux MTN, Moov, Celtiis à l'inscription.
+ */
+async function setupDefaultSlabs(networkId, ownerId) {
+  const rows = DEFAULT_SLABS.map(s => ({
+    network_id: networkId,
+    owner_id:   ownerId,
+    min_amount: s.min_amount,
+    max_amount: s.max_amount,
+    fee:        s.fee,
+    commission: s.commission,
+  }));
+  await sb.from('withdrawal_slabs').insert(rows);
 }
 
 
@@ -447,7 +496,7 @@ async function doLogin() {
   await afterLogin(data.user);
 }
 
-/** Inscription d'un nouveau propriétaire */
+/** Inscription d'un nouveau propriétaire avec réseaux et tranches par défaut */
 async function doRegOwner() {
   const lic   = (document.getElementById('rLic')?.value   || '').trim().toUpperCase();
   const name  = (document.getElementById('rName')?.value  || '').trim();
@@ -472,7 +521,25 @@ async function doRegOwner() {
 
   await sb.from('owners').insert({ id: uid, full_name: name, username: user, phone, email, license_key: lic, invite_code: code, cabin_name: 'Ma Cabine', capital: 0 });
   await sb.from('licenses').update({ owner_id: uid, status: 'active', start_date: new Date().toISOString().slice(0, 10) }).eq('key', lic);
-  await sb.rpc('setup_default_networks', { p_owner_id: uid });
+
+  // Création des 3 réseaux par défaut + leurs tranches de retrait
+  for (const net of DEFAULT_NETWORKS) {
+    const { data: netRow } = await sb.from('networks').insert({
+      owner_id: uid,
+      name:     net.name,
+      color:    net.color,
+      active:   true,
+      capital:  0,
+      rate_dep: net.rate_dep,
+      rate_ret: 0, // Retrait = commission fixe, pas de taux %
+      rate_for: net.rate_for,
+      rate_cre: net.rate_cre,
+    }).select().single();
+
+    if (netRow) {
+      await setupDefaultSlabs(netRow.id, uid);
+    }
+  }
 
   toast('✅ Compte créé ! Vérifiez votre email puis connectez-vous.');
   setMode('login');
@@ -510,6 +577,7 @@ async function doRegMgr() {
 
 /** Déconnexion complète et réinitialisation de l'état */
 async function doLogout() {
+  closeM('logoutConfirmM');
   await sb.auth.signOut();
   A = { ...A, user: null, profile: null, role: null, nets: [], notifs: [], managers: [], slabs: {} };
   showV('splash');
@@ -685,12 +753,20 @@ function renderNotifs() {
         </div>
         <button onclick="markRead('${n.id}')" style="padding:3px 7px;border-radius:6px;background:rgba(255,61,90,.1);border:1px solid rgba(255,61,90,.2);color:var(--red);font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
       </div>
+
       ${n.type === 'manager_request' && A.role === 'owner' ? `
         <div style="display:flex;gap:6px;margin-top:8px;">
           <button onclick="event.stopPropagation();approveMgr('${n.data?.manager_id}','${n.data?.request_id}')" style="padding:5px 12px;border-radius:8px;background:rgba(0,232,150,.12);border:1px solid rgba(0,232,150,.25);color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;">✅ Approuver</button>
           <button onclick="event.stopPropagation();rejectMgr('${n.data?.manager_id}','${n.data?.request_id}')"  style="padding:5px 12px;border-radius:8px;background:rgba(255,61,90,.1);border:1px solid rgba(255,61,90,.2);color:var(--red);font-size:11px;font-weight:700;cursor:pointer;">❌ Refuser</button>
         </div>` : ''}
+
       ${n.type === 'deletion_request' && A.role === 'owner' ? `
+        <!-- Motif de suppression visible par le propriétaire -->
+        ${n.data?.reason ? `
+          <div style="margin-top:8px;padding:8px 10px;background:rgba(255,92,56,.06);border:1px solid rgba(255,92,56,.15);border-radius:9px;">
+            <div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Motif de la demande</div>
+            <div style="font-size:11px;color:var(--warn);line-height:1.5;">"${n.data.reason}"</div>
+          </div>` : ''}
         <div style="display:flex;gap:6px;margin-top:8px;">
           <button onclick="event.stopPropagation();handleDel('${n.data?.request_id}','approved')" style="padding:5px 12px;border-radius:8px;background:rgba(0,232,150,.12);border:1px solid rgba(0,232,150,.25);color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;">✅ Approuver</button>
           <button onclick="event.stopPropagation();handleDel('${n.data?.request_id}','rejected')" style="padding:5px 12px;border-radius:8px;background:rgba(255,61,90,.1);border:1px solid rgba(255,61,90,.2);color:var(--red);font-size:11px;font-weight:700;cursor:pointer;">❌ Refuser</button>
@@ -707,7 +783,11 @@ async function markRead(id) {
 
 async function clearAllNotifs() {
   if (!A.notifs.length) { toast('Aucune notification'); return; }
-  if (!confirm(`Supprimer toutes les notifications (${A.notifs.length}) ?`)) return;
+  openM('clearNotifsConfirmM');
+}
+
+async function doClearAllNotifs() {
+  closeM('clearNotifsConfirmM');
   await sb.from('notifications').delete().in('id', A.notifs.map(n => n.id));
   A.notifs = [];
   updateDot(A.role);
@@ -765,7 +845,7 @@ async function oHome() {
     sb.from('transactions').select('amount,commission').eq('owner_id', oid).eq('date', today).eq('deleted', false),
     sb.from('transactions').select('amount,commission').eq('owner_id', oid).gte('date', month).eq('deleted', false),
     sb.from('licenses').select('key,plan,end_date').eq('key', A.profile.license_key).maybeSingle(),
-    sb.from('deletion_requests').select('*,managers(full_name),transactions(type,amount,network_name)').eq('owner_id', oid).eq('status', 'pending'),
+    sb.from('deletion_requests').select('*,managers(full_name),transactions(type,amount,network_name,reason)').eq('owner_id', oid).eq('status', 'pending'),
   ]);
 
   const st = arr => ({
@@ -797,7 +877,10 @@ async function oHome() {
     ${pend?.length ? `
       <div style="padding:10px 12px;background:rgba(255,92,56,.06);border:1px solid rgba(255,92,56,.2);border-radius:11px;margin-bottom:11px;cursor:pointer;" onclick="openM('notifM')">
         <div style="font-size:11px;font-weight:700;color:var(--warn);">🗑️ ${pend.length} demande${pend.length > 1 ? 's' : ''} de suppression</div>
-        ${pend.map(r => `<div style="font-size:10px;color:var(--muted2);margin-top:2px;">${r.managers?.full_name || '?'} · ${OL[r.transactions?.type] || '?'} ${fmt(r.transactions?.amount || 0)} F</div>`).join('')}
+        ${pend.map(r => `
+          <div style="margin-top:5px;padding:6px 8px;background:rgba(255,92,56,.05);border-radius:7px;">
+            <div style="font-size:10px;color:var(--muted2);">${r.managers?.full_name || '?'} · ${OL[r.transactions?.type] || '?'} ${fmt(r.transactions?.amount || 0)} F</div>
+          </div>`).join('')}
         <div style="font-size:10px;color:var(--accent2);margin-top:4px;">→ Appuyez pour traiter</div>
       </div>` : ''}
 
@@ -824,6 +907,14 @@ async function oRep() {
   if (f.df) q = q.gte('date', f.df);
   if (f.dt) q = q.lte('date', f.dt);
   const { data: txs } = await q.order('created_at', { ascending: false });
+
+  // Récupérer aussi les demandes de suppression avec leurs motifs
+  const { data: delReqs } = await sb.from('deletion_requests')
+    .select('transaction_id,reason,status,managers(full_name)')
+    .eq('owner_id', A.profile.id);
+
+  const delMap = {};
+  (delReqs || []).forEach(r => { delMap[r.transaction_id] = r; });
 
   let rows = txs || [];
   if (f.s) {
@@ -855,7 +946,10 @@ async function oRep() {
       <div class="sc"><div class="slbl">Nb Tx</div><div class="sval" style="color:var(--accent2);">${st.count}</div></div>
       <div class="sc"><div class="slbl">Commissions</div><div class="sval" style="color:var(--accent);font-size:13px;">${fmtK(st.comm)} F</div></div>
     </div>
-    <div class="card">${rows.length === 0 ? '<div class="empty">Aucune transaction</div>' : rows.slice(0, 15).map(tx => txH(tx, true, mmap)).join('')}${rows.length > 15 ? `<div style="text-align:center;padding:9px;font-size:11px;color:var(--muted2);">+${rows.length - 15} autres</div>` : ''}</div>`;
+    <div class="card">${rows.length === 0
+      ? '<div class="empty">Aucune transaction</div>'
+      : rows.slice(0, 15).map(tx => txH(tx, true, mmap, false, delMap[tx.id])).join('')
+    }${rows.length > 15 ? `<div style="text-align:center;padding:9px;font-size:11px;color:var(--muted2);">+${rows.length - 15} autres</div>` : ''}</div>`;
 
   const el = document.getElementById('repSearch');
   if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') submitRepSearch(); });
@@ -962,6 +1056,12 @@ async function renderMgrD() {
   if (f.dt) q = q.lte('date', f.dt);
   const { data: txs } = await q.order('created_at', { ascending: false });
 
+  const { data: delReqs } = await sb.from('deletion_requests')
+    .select('transaction_id,reason,status')
+    .eq('owner_id', A.profile.id);
+  const delMap = {};
+  (delReqs || []).forEach(r => { delMap[r.transaction_id] = r; });
+
   let rows = txs || [];
   if (f.s) {
     const sq = f.s.toLowerCase();
@@ -990,7 +1090,10 @@ async function renderMgrD() {
       <div class="sc"><div class="slbl">Nb Tx</div><div class="sval" style="color:var(--accent2);">${st.count}</div></div>
       <div class="sc"><div class="slbl">Commissions</div><div class="sval" style="color:var(--accent);font-size:13px;">${fmtK(st.comm)} F</div></div>
     </div>
-    <div class="card">${rows.length === 0 ? '<div class="empty">Aucune transaction</div>' : rows.slice(0, 20).map(tx => txH(tx, false, {})).join('')}${rows.length > 20 ? `<div style="text-align:center;padding:9px;font-size:11px;color:var(--muted2);">+${rows.length - 20} autres</div>` : ''}</div>`;
+    <div class="card">${rows.length === 0
+      ? '<div class="empty">Aucune transaction</div>'
+      : rows.slice(0, 20).map(tx => txH(tx, false, {}, false, delMap[tx.id])).join('')
+    }${rows.length > 20 ? `<div style="text-align:center;padding:9px;font-size:11px;color:var(--muted2);">+${rows.length - 20} autres</div>` : ''}</div>`;
 
   const el = document.getElementById('mgrDSearch');
   if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') submitMgrDSearch(); });
@@ -998,7 +1101,16 @@ async function renderMgrD() {
 function submitMgrDSearch() { const v = document.getElementById('mgrDSearch')?.value?.trim() || ''; A.pendD = v; A.fD.s = v; renderMgrD(); }
 
 async function delMgr(id, name) {
-  if (!confirm(`Supprimer le gérant "${name}" ?\n\n⚠️ Cela supprimera définitivement :\n• Son compte\n• Toutes ses transactions\n• Toutes ses demandes\n• Ses données de capital\n\nAction IRRÉVERSIBLE.`)) return;
+  openM('delMgrConfirmM');
+  document.getElementById('delMgrName').textContent = name;
+  window._pendingDelMgrId   = id;
+  window._pendingDelMgrName = name;
+}
+
+async function confirmDelMgr() {
+  const id   = window._pendingDelMgrId;
+  const name = window._pendingDelMgrName;
+  closeM('delMgrConfirmM');
   await sb.from('transactions').delete().eq('manager_id', id);
   await sb.from('deletion_requests').delete().eq('manager_id', id);
   await sb.from('manager_requests').delete().eq('manager_id', id);
@@ -1041,7 +1153,7 @@ async function oConf() {
           <div class="liico" style="background:rgba(255,255,255,.03);"><div style="width:9px;height:9px;border-radius:50%;background:${n.color}"></div></div>
           <div class="libody">
             <div class="lititle">${n.name}</div>
-            <div class="lisub">Dép ${n.rate_dep}% · Ret ${n.rate_ret}% · Cap: ${fmtK(netCapMap[n.id] || 0)} F · <span style="color:${slabCount(n.id) > 0 ? 'var(--yellow)' : 'var(--red)'};">${slabCount(n.id)} tranche${slabCount(n.id) > 1 ? 's' : ''} retrait</span></div>
+            <div class="lisub">Dép ${n.rate_dep}% · Cap: ${fmtK(netCapMap[n.id] || 0)} F · <span style="color:${slabCount(n.id) > 0 ? 'var(--yellow)' : 'var(--red)'};">${slabCount(n.id)} tranche${slabCount(n.id) > 1 ? 's' : ''} retrait</span></div>
           </div>
           <div style="display:flex;align-items:center;gap:5px;">
             <button onclick="openSlabModal('${n.id}','${n.name.replace(/'/g, "\\'")}')" style="padding:3px 7px;border-radius:6px;background:rgba(255,201,77,.1);border:1px solid rgba(255,201,77,.2);color:var(--yellow);font-size:10px;font-weight:700;cursor:pointer;">📊</button>
@@ -1053,20 +1165,20 @@ async function oConf() {
     </div>
 
     <div class="card">
-      <div class="sh" style="margin-bottom:4px;"><div class="st" style="font-size:12px;">💰 Taux de commissions</div></div>
+      <div class="sh" style="margin-bottom:4px;"><div class="st" style="font-size:12px;">💰 Taux de commissions (dépôt/forfait/crédit)</div></div>
       <div style="padding:8px 10px;background:rgba(61,139,255,.05);border:1px solid rgba(61,139,255,.15);border-radius:9px;margin-bottom:11px;font-size:10px;color:var(--muted3);line-height:1.6;">
         ⬇️📶📱 Dépôt / Forfait / Crédit : <strong style="color:var(--text);">taux % × montant</strong><br>
-        ⬆️ Retrait : <strong style="color:var(--text);">taux % × frais de la tranche</strong>
+        ⬆️ Retrait : <strong style="color:var(--accent);">commission fixe par tranche</strong> (configurez via 📊)
       </div>
       ${A.nets.filter(n => n.active).map(n => `
         <div style="margin-bottom:10px;">
           <div style="display:flex;align-items:center;gap:6px;padding:6px 0 4px;">
             <div style="width:7px;height:7px;border-radius:50%;background:${n.color}"></div>
             <div style="font-family:'Syne',sans-serif;font-size:11px;font-weight:700;">${n.name}</div>
-            ${slabCount(n.id) === 0 ? '<span class="pill pr" style="font-size:9px;">⚠️ Aucune tranche retrait</span>' : ''}
+            ${slabCount(n.id) === 0 ? '<span class="pill pr" style="font-size:9px;">⚠️ Aucune tranche retrait</span>' : `<span class="pill py" style="font-size:9px;">${slabCount(n.id)} tranches retrait</span>`}
           </div>
-          ${[{k:'rate_dep',i:'⬇️',l:'Dépôt'},{k:'rate_ret',i:'⬆️',l:'Retrait'},{k:'rate_for',i:'📶',l:'Forfait'},{k:'rate_cre',i:'📱',l:'Crédit'}].map(op =>
-            `<div class="cer"><div class="ceico">${op.i}</div><div class="cen">${op.l}${op.k==='rate_ret'?'<span style="font-size:9px;color:var(--muted2);"> (× frais tranche)</span>':''}</div><div class="cew"><input class="cei" type="number" value="${n[op.k]||0}" step="0.5" id="r_${n.id}_${op.k}"><div class="cep">%</div></div></div>`
+          ${[{k:'rate_dep',i:'⬇️',l:'Dépôt'},{k:'rate_for',i:'📶',l:'Forfait'},{k:'rate_cre',i:'📱',l:'Crédit'}].map(op =>
+            `<div class="cer"><div class="ceico">${op.i}</div><div class="cen">${op.l}</div><div class="cew"><input class="cei" type="number" value="${n[op.k]||0}" step="0.5" id="r_${n.id}_${op.k}"><div class="cep">%</div></div></div>`
           ).join('')}
           <div style="height:1px;background:var(--border);margin-top:4px;"></div>
         </div>`).join('')}
@@ -1115,9 +1227,12 @@ async function saveNet() {
     A.nets = A.nets.map(n => n.id === editId ? { ...n, name, color: A.selColor, rate_dep: dep, rate_ret: ret } : n);
     closeM('netM'); oConf(); toast(`✅ "${name}" modifié !`);
   } else {
-    const { data, error } = await sb.from('networks').insert({ owner_id: A.profile.id, name, color: A.selColor || '#00d68f', active: true, capital: 0, rate_dep: dep, rate_ret: ret, rate_for: 0, rate_cre: 0 }).select().single();
+    const { data, error } = await sb.from('networks').insert({ owner_id: A.profile.id, name, color: A.selColor || '#00d68f', active: true, capital: 0, rate_dep: dep, rate_ret: 0, rate_for: 0, rate_cre: 0 }).select().single();
     if (error) { toast('❌ ' + error.message); return; }
-    A.nets.push(data); closeM('netM'); oConf(); toast(`✅ "${name}" ajouté !`);
+    // Ajouter les tranches par défaut pour ce nouveau réseau
+    await setupDefaultSlabs(data.id, A.profile.id);
+    await loadSlabs(A.profile.id);
+    A.nets.push(data); closeM('netM'); oConf(); toast(`✅ "${name}" ajouté avec tranches par défaut !`);
   }
 }
 
@@ -1134,7 +1249,8 @@ async function deleteNet(netId, netName) {
 async function saveRates() {
   for (const n of A.nets.filter(x => x.active)) {
     const upd = {};
-    ['rate_dep','rate_ret','rate_for','rate_cre'].forEach(k => { const el = document.getElementById(`r_${n.id}_${k}`); if (el) upd[k] = parseFloat(el.value) || 0; });
+    // Retrait exclu des taux (commission fixe via tranches)
+    ['rate_dep','rate_for','rate_cre'].forEach(k => { const el = document.getElementById(`r_${n.id}_${k}`); if (el) upd[k] = parseFloat(el.value) || 0; });
     await sb.from('networks').update(upd).eq('id', n.id);
     Object.assign(n, upd);
   }
@@ -1173,18 +1289,21 @@ function mTx() {
   const nets = A.nets;
   if (!A.selNet && nets.length) A.selNet = nets[0].name;
   const net  = nets.find(n => n.name === A.selNet) || nets[0];
-  const rk   = { dep: 'rate_dep', ret: 'rate_ret', for: 'rate_for', cre: 'rate_cre' }[A.selOp];
-  const rate  = net ? net[rk] || 0 : 0;
+  const rate  = net ? net.rate_dep || 0 : 0; // Taux dépôt pour affichage (retrait = fixe)
   const ctr   = COUNTRIES.find(c => c.code === A.selCty) || COUNTRIES[0];
   const OO    = { dep:{i:'⬇️',c:'adep'}, ret:{i:'⬆️',c:'aret'}, for:{i:'📶',c:'afor'}, cre:{i:'📱',c:'acre'} };
   const mgrNetCap = A.mgrNetCaps?.[net?.id] || 0;
+  const rk    = { dep: 'rate_dep', ret: 'rate_ret', for: 'rate_for', cre: 'rate_cre' }[A.selOp];
+  const opRate = net ? net[rk] || 0 : 0;
 
   const slabs = net ? (A.slabs[net.id] || []).slice().sort((a, b) => a.min_amount - b.min_amount) : [];
+
+  // Hint différent selon l'opération
   const commHint = A.selOp === 'ret'
     ? slabs.length > 0
-      ? `Taux ${rate}% × frais tranche · Ex: retrait 5 000 F → ${fmt(Math.round((slabs[0]?.fee || 0) * rate / 100))} F commission`
-      : `<span style="color:var(--red);">⚠️ Aucune tranche configurée pour ce réseau</span>`
-    : `Taux ${rate}% × montant`;
+      ? `Commission fixe par tranche · Ex: retrait 0–5 000 F → <strong style="color:var(--accent);">+${fmt(slabs[0]?.commission || 0)} F</strong>`
+      : `<span style="color:var(--red);">⚠️ Aucune tranche configurée</span>`
+    : `Taux ${opRate}% × montant`;
 
   document.getElementById('managerC').innerHTML = `
     <div style="padding:4px 0 9px;">
@@ -1210,18 +1329,32 @@ function mTx() {
     </div>
 
     <div style="margin-bottom:10px;"><label class="lbl">Montant (FCFA)</label>
-      <div class="afield"><input style="background:none;border:none;outline:none;font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--text);width:100%;" type="number" id="txAmt" placeholder="0" oninput="calcComm('${net?.id}','${A.selOp}',${rate})"><span class="acur">FCFA</span></div>
+      <div class="afield"><input style="background:none;border:none;outline:none;font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--text);width:100%;" type="number" id="txAmt" placeholder="0" oninput="calcComm('${net?.id}','${A.selOp}',${opRate})"><span class="acur">FCFA</span></div>
     </div>
 
-    ${A.selOp==='ret'&&slabs.length>0?`<div style="margin-bottom:9px;padding:8px 10px;background:rgba(255,201,77,.04);border:1px solid rgba(255,201,77,.14);border-radius:9px;"><div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Grille de frais retrait — ${A.selNet}</div>${slabs.map(s=>`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted3);padding:2px 0;"><span>${fmt(s.min_amount)} – ${s.max_amount!=null?fmt(s.max_amount):'∞'} F</span><span style="color:var(--yellow);font-weight:700;">${fmt(s.fee)} F → <span style="color:var(--accent);">+${fmt(Math.round(s.fee*rate/100))} F</span></span></div>`).join('')}</div>`:'' }
+    ${A.selOp==='ret'&&slabs.length>0?`
+      <div style="margin-bottom:9px;padding:8px 10px;background:rgba(255,201,77,.04);border:1px solid rgba(255,201,77,.14);border-radius:9px;">
+        <div style="font-size:9px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Grille de retrait — ${A.selNet}</div>
+        <div style="display:grid;grid-template-columns:auto auto auto auto;gap:3px 8px;font-size:9px;">
+          <div style="color:var(--muted2);font-weight:700;">Min</div>
+          <div style="color:var(--muted2);font-weight:700;">Max</div>
+          <div style="color:var(--muted2);font-weight:700;">Frais</div>
+          <div style="color:var(--accent);font-weight:700;">Comm.</div>
+          ${slabs.map(s=>`
+            <div style="color:var(--muted3);">${fmt(s.min_amount)} F</div>
+            <div style="color:var(--muted3);">${s.max_amount!=null?fmt(s.max_amount):'∞'} F</div>
+            <div style="color:var(--yellow);">${fmt(s.fee)} F</div>
+            <div style="color:var(--accent);font-weight:700;">+${fmt(s.commission)} F</div>`).join('')}
+        </div>
+      </div>` : ''}
 
     <div class="cdisp" style="margin-bottom:9px;">
-      <div><div style="font-size:11px;color:var(--muted2);">Commission (${OL[A.selOp]} ${A.selNet||'—'})</div><div style="font-size:10px;color:var(--muted);margin-top:1px;">${commHint}</div></div>
+      <div><div style="font-size:11px;color:var(--muted2);">Commission (${OL[A.selOp]} ${A.selNet||'—'})</div><div style="font-size:10px;color:var(--muted);margin-top:1px;" id="commHintTxt">${commHint}</div></div>
       <div style="text-align:right;"><div style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:var(--accent);" id="commVal">+ 0 F</div><div style="font-size:9px;color:var(--muted2);" id="commFeeDetail"></div></div>
     </div>
 
     <div class="lock-n">🔒 Transaction verrouillée après validation</div>
-    <button class="btn btnb" onclick="subTx('${net?.id}',${rate})">✅ Valider la transaction</button>
+    <button class="btn btnb" onclick="subTx('${net?.id}',${opRate})">✅ Valider la transaction</button>
     ${getPendingOfflineCount()>0?`<div style="margin-top:9px;padding:8px 11px;background:rgba(255,201,77,.07);border:1px solid rgba(255,201,77,.2);border-radius:9px;font-size:11px;color:var(--yellow);">📤 ${getPendingOfflineCount()} tx en attente de synchronisation</div>`:''}`;
 }
 
@@ -1237,11 +1370,15 @@ function calcComm(networkId, op, rate) {
   if (res.noSlab) {
     elVal.textContent   = '⚠️ Pas de tranche';
     elVal.style.color   = 'var(--red)';
-    if (elDet) elDet.textContent = 'Configurez les tranches dans Config → 📊';
+    if (elDet) elDet.textContent = 'Configurez les tranches via Config → 📊';
+  } else if (op === 'ret') {
+    elVal.textContent   = '+ ' + fmt(res.comm) + ' F';
+    elVal.style.color   = 'var(--accent)';
+    if (elDet) elDet.textContent = `Frais client : ${fmt(res.fee)} F · Votre commission : ${fmt(res.comm)} F (fixe)`;
   } else {
     elVal.textContent   = '+ ' + fmt(res.comm) + ' F';
     elVal.style.color   = 'var(--accent)';
-    if (elDet) elDet.textContent = (op === 'ret' && res.fee !== undefined) ? `Frais retrait : ${fmt(res.fee)} F → ${rate}% = ${fmt(res.comm)} F` : '';
+    if (elDet) elDet.textContent = `${rate}% × ${fmt(a)} F = ${fmt(res.comm)} F`;
   }
 }
 
@@ -1255,7 +1392,9 @@ async function subTx(networkId, rate) {
 
   const phone = document.getElementById('cPhone')?.value?.trim();
   const ctr   = COUNTRIES.find(c => c.code === A.selCty) || COUNTRIES[0];
-  const res   = computeComm(A.selOp, rate, amt, networkId);
+  const rk    = { dep: 'rate_dep', ret: 'rate_ret', for: 'rate_for', cre: 'rate_cre' }[A.selOp];
+  const opRate = net[rk] || 0;
+  const res   = computeComm(A.selOp, opRate, amt, networkId);
 
   if (res.noSlab && A.selOp === 'ret') {
     toast('⚠️ Aucune tranche retrait configurée pour ce réseau. Contactez votre propriétaire.');
@@ -1270,8 +1409,8 @@ async function subTx(networkId, rate) {
     type:           A.selOp,
     amount:         amt,
     commission:     res.comm,
-    rate,
-    withdrawal_fee: A.selOp === 'ret' ? (res.fee || 0) : null, // Traçabilité
+    rate:           opRate,
+    withdrawal_fee: A.selOp === 'ret' ? (res.fee || 0) : null,
     client_phone:   phone,
     client_country: A.selCty,
     client_prefix:  ctr.prefix,
@@ -1346,12 +1485,23 @@ async function mGains() {
  * @param {boolean} showMgr   - Afficher le nom du gérant (vue propriétaire)
  * @param {Object}  mmap      - Map { managerId: fullName }
  * @param {boolean} showDel   - Afficher le bouton de demande de suppression
+ * @param {Object}  delReq    - Demande de suppression liée à cette transaction (optionnel)
  */
-function txH(tx, showMgr = false, mmap = {}, showDel = false) {
+function txH(tx, showMgr = false, mmap = {}, showDel = false, delReq = null) {
   const isRet  = tx.type === 'ret';
   const feeNote = isRet && tx.withdrawal_fee != null
-    ? `<span class="txp" style="color:var(--yellow);border-color:rgba(255,201,77,.2);background:rgba(255,201,77,.07);">Frais: ${fmt(tx.withdrawal_fee)} F</span>`
+    ? `<span class="txp" style="color:var(--yellow);border-color:rgba(255,201,77,.2);background:rgba(255,201,77,.07);">Frais client: ${fmt(tx.withdrawal_fee)} F</span>`
     : '';
+
+  // Affichage de la demande de suppression (avec motif) pour le propriétaire
+  const delReqHtml = delReq ? `
+    <div style="margin-top:6px;padding:6px 8px;background:rgba(255,92,56,.05);border:1px solid rgba(255,92,56,.14);border-radius:7px;">
+      <div style="font-size:9px;font-weight:700;color:var(--warn);margin-bottom:2px;">
+        🗑️ Demande de suppression
+        <span class="pill ${delReq.status === 'pending' ? 'po' : delReq.status === 'approved' ? 'pg' : 'pr'}" style="font-size:8px;margin-left:4px;">${delReq.status === 'pending' ? 'En attente' : delReq.status === 'approved' ? 'Approuvée' : 'Refusée'}</span>
+      </div>
+      ${delReq.reason ? `<div style="font-size:10px;color:var(--muted3);font-style:italic;">"${delReq.reason}"</div>` : ''}
+    </div>` : '';
 
   return `
     <div class="txitem" ${tx.deleted ? 'style="opacity:.45;"' : ''}>
@@ -1364,7 +1514,7 @@ function txH(tx, showMgr = false, mmap = {}, showDel = false) {
         </div>
         <div style="text-align:right;">
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:${OC[tx.type]||'var(--muted2)'};">+${fmt(tx.commission)} F</div>
-          <div style="font-size:9px;color:var(--muted2);">${tx.rate || 0}%</div>
+          <div style="font-size:9px;color:var(--muted2);">${isRet ? 'fixe' : (tx.rate || 0) + '%'}</div>
         </div>
       </div>
       <div class="txpills">
@@ -1376,6 +1526,7 @@ function txH(tx, showMgr = false, mmap = {}, showDel = false) {
         ${!tx.deleted ? '<span class="txp" style="color:var(--muted);">🔒</span>' : ''}
         ${showDel && !tx.deleted ? `<span class="txp" style="color:var(--red);border-color:rgba(255,61,90,.2);background:rgba(255,61,90,.07);cursor:pointer;" onclick="openDel('${tx.id}','${OL[tx.type]} ${fmt(tx.amount)} FCFA · ${tx.network_name}')">🗑️ Supprimer</span>` : ''}
       </div>
+      ${delReqHtml}
     </div>`;
 }
 
@@ -1389,9 +1540,15 @@ function openDel(txId, info) {
 async function submitDel() {
   const reason = document.getElementById('delReason')?.value?.trim();
   if (!reason) { toast('⚠️ Expliquez le motif'); return; }
-  const { error } = await sb.from('deletion_requests').insert({ transaction_id: A.pendingDelTx, manager_id: A.profile.id, owner_id: A.profile.owner_id, reason });
+  const { error } = await sb.from('deletion_requests').insert({
+    transaction_id: A.pendingDelTx,
+    manager_id:     A.profile.id,
+    owner_id:       A.profile.owner_id,
+    reason,
+  });
   if (error) { toast('❌ ' + error.message); return; }
   toast('📤 Demande envoyée au propriétaire !'); closeM('delM');
+  mHist(); // Rafraîchir l'historique
 }
 
 
