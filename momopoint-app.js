@@ -48,17 +48,53 @@ const OI = { dep: '⬇️',               ret: '⬆️',              for: '📶
 const NET_COLORS = ['#00c4ff','#ff9500','#ffc94d','#00d68f','#ff4466','#b09fff','#3d8bff','#ff6eb4'];
 
 /**
- * Tranches de retrait par défaut pour les 3 réseaux de base.
+ * Tranches de retrait par défaut — MTN
  * Format : { min_amount, max_amount, fee (frais), commission (commission fixe) }
  * La commission est un montant FIXE par tranche, pas un pourcentage.
  */
-const DEFAULT_SLABS = [
+const DEFAULT_SLABS_MTN = [
   { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 60  },
   { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 100 },
   { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 150 },
   { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 200 },
   { min_amount: 50001,  max_amount: null,  fee: 750, commission: 300 },
 ];
+
+/**
+ * Tranches de retrait par défaut — Moov
+ * Format : { min_amount, max_amount, fee (frais), commission (commission fixe) }
+ * La commission est un montant FIXE par tranche, pas un pourcentage.
+ */
+const DEFAULT_SLABS_MOOV = [
+  { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 60  },
+  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 130 },
+  { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 140 },
+  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 201 },
+  { min_amount: 50001,  max_amount: null,  fee: 750, commission: 310 },
+];
+
+/**
+ * Tranches de retrait par défaut — Celtiis
+ * Format : { min_amount, max_amount, fee (frais), commission (commission fixe) }
+ * La commission est un montant FIXE par tranche, pas un pourcentage.
+ */
+const DEFAULT_SLABS_CELTIIS = [
+  { min_amount: 0,      max_amount: 5000,  fee: 125, commission: 50  },
+  { min_amount: 5001,   max_amount: 10000, fee: 225, commission: 130 },
+  { min_amount: 10001,  max_amount: 20000, fee: 350, commission: 140 },
+  { min_amount: 20001,  max_amount: 50000, fee: 500, commission: 211 },
+  { min_amount: 50001,  max_amount: null,  fee: 750, commission: 330 },
+];
+
+/**
+ * Map des tranches par nom de réseau (insensible à la casse).
+ * Utilisée par setupDefaultSlabs() pour choisir les bonnes tranches.
+ */
+const DEFAULT_SLABS_BY_NETWORK = {
+  mtn:     DEFAULT_SLABS_MTN,
+  moov:    DEFAULT_SLABS_MOOV,
+  celtiis: DEFAULT_SLABS_CELTIIS,
+};
 
 /** Réseaux créés par défaut à l'inscription d'un propriétaire */
 const DEFAULT_NETWORKS = [
@@ -394,10 +430,18 @@ async function saveSlabs() {
 
 /**
  * Initialise les tranches de retrait par défaut pour un réseau nouvellement créé.
- * Appelé lors de la création des réseaux MTN, Moov, Celtiis à l'inscription.
+ * Sélectionne automatiquement les tranches spécifiques au réseau (MTN / Moov / Celtiis).
+ * Pour tout autre réseau, utilise les tranches MTN comme fallback.
+ *
+ * @param {string} networkId   - UUID du réseau en base
+ * @param {string} ownerId     - UUID du propriétaire
+ * @param {string} networkName - Nom du réseau (ex: "MTN", "Moov", "Celtiis")
  */
-async function setupDefaultSlabs(networkId, ownerId) {
-  const rows = DEFAULT_SLABS.map(s => ({
+async function setupDefaultSlabs(networkId, ownerId, networkName = '') {
+  const key   = (networkName || '').toLowerCase().trim();
+  const slabs = DEFAULT_SLABS_BY_NETWORK[key] || DEFAULT_SLABS_MTN; // fallback MTN
+
+  const rows = slabs.map(s => ({
     network_id: networkId,
     owner_id:   ownerId,
     min_amount: s.min_amount,
@@ -537,7 +581,7 @@ async function doRegOwner() {
     }).select().single();
 
     if (netRow) {
-      await setupDefaultSlabs(netRow.id, uid);
+      await setupDefaultSlabs(netRow.id, uid, net.name);
     }
   }
 
@@ -1230,7 +1274,7 @@ async function saveNet() {
     const { data, error } = await sb.from('networks').insert({ owner_id: A.profile.id, name, color: A.selColor || '#00d68f', active: true, capital: 0, rate_dep: dep, rate_ret: 0, rate_for: 0, rate_cre: 0 }).select().single();
     if (error) { toast('❌ ' + error.message); return; }
     // Ajouter les tranches par défaut pour ce nouveau réseau
-    await setupDefaultSlabs(data.id, A.profile.id);
+    await setupDefaultSlabs(data.id, A.profile.id, name);
     await loadSlabs(A.profile.id);
     A.nets.push(data); closeM('netM'); oConf(); toast(`✅ "${name}" ajouté avec tranches par défaut !`);
   }
