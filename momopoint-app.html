@@ -362,6 +362,31 @@
   </div>
 
 
+  <!-- Modal : Confirmation de déconnexion -->
+  <div class="mover" id="logoutConfirmM">
+    <div class="msheet">
+      <div class="mhandle"></div>
+      <div class="mhead">
+        <div class="mtitle">🚪 Se déconnecter</div>
+        <div class="mclose" onclick="closeM('logoutConfirmM')">✕</div>
+      </div>
+      <div class="mbody">
+        <div style="text-align:center; padding:12px 0 18px;">
+          <div style="font-size:40px; margin-bottom:10px;">👋</div>
+          <div style="font-family:'Syne',sans-serif; font-size:15px; font-weight:700; margin-bottom:6px;">Quitter MomoPoint ?</div>
+          <div style="font-size:12px; color:var(--muted3);">Vous devrez vous reconnecter pour accéder à votre espace.</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div style="padding:10px; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:10px; text-align:center; font-size:12px; color:var(--muted2); font-weight:700; cursor:pointer;"
+               onclick="closeM('logoutConfirmM')">Annuler</div>
+          <button class="btn" style="background:rgba(255,61,90,.12); color:var(--red); border:1px solid rgba(255,61,90,.22);"
+                  onclick="doLogout()">🚪 Confirmer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
   <!-- ══════════════════════════════════════════════════
        TOAST — Notification flottante globale
        ══════════════════════════════════════════════════ -->
